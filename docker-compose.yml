@@ -1,0 +1,56 @@
+# Local AWS lab: LocalStack (fake AWS) + drift-server (API + dashboard).
+#   docker compose up -d            -> start everything
+#   http://localhost:8080           -> dashboard
+#   http://localhost:4566           -> LocalStack edge endpoint (all AWS APIs)
+services:
+  localstack:
+    # Pinned to the last Community release that runs without an account/auth
+    # token. Newer images (2026.x) require a (free) LocalStack account.
+    image: localstack/localstack:4.14.0
+    container_name: localstack
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,ec2,sts,iam
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      # Scripts here run when LocalStack is ready (creates the state bucket).
+      - ./localstack/init/ready.d:/etc/localstack/init/ready.d:ro
+    healthcheck:
+      # "ready" only after the init scripts above have finished.
+      test: ["CMD-SHELL", "curl -fs localhost:4566/_localstack/init/ready | grep -q '\"completed\": true'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  drift-server:
+    build: .
+    container_name: drift-server
+    depends_on:
+      localstack:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # Inside the compose network LocalStack is reachable by service name.
+      LOCALSTACK_ENDPOINT: http://localstack:4566
+    volumes:
+      - drift-data:/data
+
+  # Optional: run Terraform without installing it.
+  #   docker compose run --rm terraform init
+  # Shares LocalStack's network namespace, so "localhost:4566" in the .tf
+  # files works both here and on your host.
+  terraform:
+    image: hashicorp/terraform:1.9.8
+    profiles: ["tools"]
+    network_mode: "service:localstack"
+    working_dir: /workspace/terraform
+    volumes:
+      - ./:/workspace
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+volumes:
+  drift-data:

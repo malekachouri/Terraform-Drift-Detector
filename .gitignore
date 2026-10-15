@@ -1,0 +1,10 @@
+bin/
+*.db
+*.db-shm
+*.db-wal
+.terraform/
+*.tfstate
+*.tfstate.backup
+!testdata/state/*.tfstate
+.terraform.lock.hcl
+crash.log

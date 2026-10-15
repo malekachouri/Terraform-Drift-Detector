@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: make build
+
+  # Full loop against LocalStack: apply -> no drift -> simulate drift -> drift.
+  e2e-localstack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: Start LocalStack
+        run: docker compose up -d --wait localstack
+      - name: Build
+        run: make build
+      - name: terraform apply
+        run: make tf-apply TF="terraform -chdir=terraform"
+      - name: Scan must report no drift (exit 0)
+        run: ./bin/driftctl scan --config configs/driftctl.yaml --workspace localstack
+      - name: Simulate drift
+        run: ./scripts/simulate-drift.sh all
+      - name: Scan must report drift (exit 1)
+        run: |
+          set +e
+          ./bin/driftctl scan --config configs/driftctl.yaml --workspace localstack --output json > report.json
+          code=$?
+          set -e
+          test "$code" -eq 1
+          jq -e '.summary.missing_in_cloud == 1 and .summary.extra_in_cloud == 1 and .summary.attribute_changes == 4 and .summary.tag_changes == 2' report.json
+      - if: always()
+        run: docker compose logs localstack | tail -50

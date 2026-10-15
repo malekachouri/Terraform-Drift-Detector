@@ -1,0 +1,30 @@
+# driftctl configuration.
+# ${VAR:-default} is expanded from the environment, so this one file works
+# from your laptop (localhost:4566) and inside docker compose (localstack:4566).
+
+database: ${DRIFTCTL_DB:-driftctl.db}
+
+api:
+  addr: ":8080"
+  # api_key: "change-me"   # protects /api/* (send X-API-Key header)
+
+workspaces:
+  - name: localstack
+    provider: aws
+    # All AWS API calls (EC2, S3) go to LocalStack instead of real AWS.
+    endpoint: ${LOCALSTACK_ENDPOINT:-http://localhost:4566}
+    state:
+      # Same backend as terraform/versions.tf
+      backend: s3
+      bucket: tf-state
+      key: demo/terraform.tfstate
+      region: us-east-1
+    regions:
+      - us-east-1
+    compare:
+      detect_unmanaged: true   # report resources created outside Terraform
+      ignore_tags: []
+      ignore_attributes: []
+      ignore_resources: []     # cloud IDs to never report as unmanaged
+    schedule:
+      cron: "*/5 * * * *"      # drift-server re-scans every 5 minutes
